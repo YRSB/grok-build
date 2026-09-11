@@ -143,19 +143,27 @@ impl XaiProtoBuilder {
     ) -> anyhow::Result<()> {
         let includes = Vec::from_iter(includes);
 
-        if let Some(protoc) = protoc {
-            println!(
-                "cargo:rerun-if-changed={}",
-                protoc.to_str().context("protoc path not UTF-8")?
-            );
-        }
+        #[cfg(windows)]
+        let descriptor_sink = "NUL";
+        #[cfg(not(windows))]
+        let descriptor_sink = "/dev/null";
 
         // Can only process one input file when using --dependency_out=FILE.
         for proto in protos {
+            #[cfg(windows)]
+            let dependency_out_path = std::env::temp_dir().join(format!(
+                "xai-proto-deps-{}-{}.d",
+                std::process::id(),
+                proto.file_name().and_then(|n| n.to_str()).unwrap_or("out")
+            ));
+            let dependency_out_arg = format!("--dependency_out={}", dependency_out_path.display());
+            #[cfg(not(windows))]
+            let dependency_out_arg = "--dependency_out=/dev/stdout".to_string();
+
             let mut command = Command::new(protoc.unwrap_or(Path::new("protoc")));
             command
-                .arg("--dependency_out=/dev/stdout")
-                .arg("--descriptor_set_out=/dev/null");
+                .arg(&dependency_out_arg)
+                .arg(format!("--descriptor_set_out={descriptor_sink}"));
 
             // Add protoc's well-known types include directory first (if found).
             // This is needed for Bazel sandboxed builds where protoc and its
@@ -181,14 +189,20 @@ impl XaiProtoBuilder {
                 return Err(anyhow::anyhow!("protoc command failed"));
             }
 
-            let output =
+            #[cfg(not(windows))]
+            let dep_text =
                 String::from_utf8(output.stdout).context("protoc command output not UTF-8")?;
+            #[cfg(windows)]
+            let dep_text = fs::read_to_string(&dependency_out_path)
+                .context("protoc dependency output not UTF-8")?;
+            #[cfg(windows)]
+            let _ = fs::remove_file(&dependency_out_path);
 
-            let mut lines = output.lines();
+            let mut lines = dep_text.lines();
             let first_line = lines.next().context("protoc command output is empty")?;
-            let prefix = "/dev/null:";
-            let rem = first_line.strip_prefix(prefix).with_context(|| {
-                format!("protoc command output must start with /dev/null: {output:?}")
+            let prefix = format!("{descriptor_sink}:");
+            let rem = first_line.strip_prefix(&prefix).with_context(|| {
+                format!("protoc command output must start with {prefix} {dep_text:?}")
             })?;
             for line in iter::once(rem).chain(lines) {
                 let line = line.trim();
@@ -196,7 +210,9 @@ impl XaiProtoBuilder {
                 // Depending on absolute paths like
                 // /Users/user/homebrew/Cellar/protobuf/29.1/include/google/protobuf/timestamp.proto
                 // is valid, but we want to have output more deterministic.
-                if line.contains("/include/google/protobuf/") {
+                if line.contains("/include/google/protobuf/")
+                    || line.contains("\\include\\google\\protobuf\\")
+                {
                     continue;
                 }
 
