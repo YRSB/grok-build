@@ -1382,6 +1382,48 @@ async fn responses_doom_loop_signals_reach_completed_response() {
     assert_eq!(response.assistant_text(), "an answer");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn responses_ping_heartbeats_are_skipped_mid_turn() {
+    let counter = Arc::new(AtomicU32::new(0));
+    let counter_handler = Arc::clone(&counter);
+    let app = Router::new().route(
+        "/v1/responses",
+        post(move || {
+            let counter = Arc::clone(&counter_handler);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                let mut events = sse::responses_api_reasoning_and_text_events(
+                    "some thought",
+                    "an answer",
+                    "test-model",
+                );
+                events.insert(1, SseEvent::with_event("ping", r#"{"type":"ping"}"#));
+                events.insert(3, SseEvent::data(r#"{"type":"ping"}"#));
+                let events = sse_events_to_axum(events);
+                Sse::new(stream::iter(
+                    events.into_iter().map(Ok::<_, std::convert::Infallible>),
+                ))
+            }
+        }),
+    );
+    let server = MockServer::spawn(app).await;
+    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let handle = SamplerActor::spawn(
+        responses_config(server.base_url(), None),
+        RetryPolicy::default(),
+        event_tx,
+    );
+
+    let result = handle
+        .submit_and_collect(RequestId::from("req-ping-heartbeat"), user_request("hi"))
+        .await;
+    server.shutdown();
+
+    let (response, _metrics) = result.expect("ping heartbeats must not fail the turn");
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    assert_eq!(response.assistant_text(), "an answer");
+}
+
 /// Acceptance spec for the recovery rung: a confident tail signal is resampled once while its detector label remains observable.
 /// The clean second response is accepted on its own budget even with transport retries disabled.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

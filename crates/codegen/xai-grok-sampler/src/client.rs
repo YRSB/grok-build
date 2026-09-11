@@ -119,6 +119,15 @@ pub(crate) fn deserialize_response_event(data: &str) -> Result<rs::ResponseStrea
     Ok(event)
 }
 
+fn is_responses_heartbeat(event_name: &str, data: &str) -> bool {
+    if event_name == "ping" {
+        return true;
+    }
+    data.contains("\"ping\"")
+        && serde_json::from_str::<serde_json::Value>(data)
+            .is_ok_and(|value| value.get("type").and_then(|v| v.as_str()) == Some("ping"))
+}
+
 /// On `response.completed` / `response.incomplete`, rewrite `usage.total_tokens` to the live context length from `context_details`.
 /// Billing fields stay on the cumulative wire values, so telemetry is unaffected.
 fn apply_terminal_event_overrides(event: &mut rs::ResponseStreamEvent, data: &str) {
@@ -1519,7 +1528,7 @@ impl SamplingClient {
                             Some(collector) => collector.absorb(&event.event, data),
                             None => is_check_event(&event.event, data),
                         };
-                        if swallow {
+                        if swallow || is_responses_heartbeat(&event.event, data) {
                             Some(None)
                         } else if let Some(stream_error) = try_parse_stream_error(data) {
                             Some(Some(Err(stream_error)))
@@ -3162,6 +3171,34 @@ mod tests {
         assert!(matches!(
             event,
             rs::ResponseStreamEvent::ResponseOutputTextDelta(_)
+        ));
+    }
+
+    #[test]
+    fn responses_heartbeat_matches_named_ping_and_type_tag() {
+        assert!(is_responses_heartbeat("ping", "not json at all"));
+        assert!(is_responses_heartbeat("message", r#"{"type":"ping"}"#));
+        assert!(is_responses_heartbeat(
+            "message",
+            r#"{"type": "ping", "sequence_number": 7}"#
+        ));
+    }
+
+    #[test]
+    fn responses_heartbeat_rejects_real_events_and_lookalikes() {
+        assert!(!is_responses_heartbeat(
+            "message",
+            r#"{"type":"response.created","sequence_number":0}"#
+        ));
+        assert!(!is_responses_heartbeat(
+            "response.output_text.delta",
+            r#"{"type":"response.output_text.delta","sequence_number":1,"delta":"ping the server"}"#
+        ));
+        assert!(!is_responses_heartbeat("message", r#"{"type":"pings"}"#));
+        assert!(!is_responses_heartbeat("message", "not json"));
+        assert!(!is_responses_heartbeat(
+            "message",
+            r#"{"error":{"message":"upstream ping timeout","type":"server_error"}}"#
         ));
     }
 }
