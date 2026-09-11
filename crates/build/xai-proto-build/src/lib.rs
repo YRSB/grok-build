@@ -156,6 +156,7 @@ impl XaiProtoBuilder {
                 std::process::id(),
                 proto.file_name().and_then(|n| n.to_str()).unwrap_or("out")
             ));
+            #[cfg(windows)]
             let dependency_out_arg = format!("--dependency_out={}", dependency_out_path.display());
             #[cfg(not(windows))]
             let dependency_out_arg = "--dependency_out=/dev/stdout".to_string();
