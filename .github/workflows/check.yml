@@ -13,7 +13,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Check shell crate
-        run: cargo check -p xai-grok-shell
+        run: cargo check -p xai-grok-pager-bin
       - name: Build binary
         run: cargo build --locked -p xai-grok-pager-bin
       - name: Upload binary
