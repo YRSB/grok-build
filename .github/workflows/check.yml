@@ -15,3 +15,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Check shell crate
         run: cargo check -p xai-grok-shell
+      - name: Build binary
+        run: cargo build --locked -p xai-grok-pager-bin
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: xai-grok-pager-windows-x86_64
+          path: target/debug/xai-grok-pager.exe
