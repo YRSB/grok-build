@@ -4850,6 +4850,15 @@ pub(crate) fn stamp_session_local_sampler_fields(
 ) {
     cfg.client_identifier = client_identifier;
     cfg.conversation_group_id = active_session_config.conversation_group_id.clone();
+    if let Some(value) = active_session_config
+        .extra_headers
+        .get(crate::sampling::OPENCODE_SESSION_HEADER)
+    {
+        cfg.extra_headers.insert(
+            crate::sampling::OPENCODE_SESSION_HEADER.to_string(),
+            value.clone(),
+        );
+    }
     cfg.attribution_callback = active_session_config.attribution_callback.clone();
     if crate::util::is_xai_api_bearer_url(&cfg.base_url) {
         cfg.bearer_resolver = active_session_config.bearer_resolver.clone();

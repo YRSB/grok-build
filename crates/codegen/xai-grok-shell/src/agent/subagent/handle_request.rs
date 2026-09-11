@@ -837,6 +837,10 @@ pub(crate) async fn run_shell_child(
         ctx.resolve_auto_compact_threshold_percent(&subagent_model_id);
     let subagent_id = request.id.clone();
     let child_session_id = acp::SessionId::new(subagent_id.clone());
+    crate::sampling::stamp_opencode_session_id(
+        &mut effective_sampling_config,
+        child_session_id.0.as_ref(),
+    );
     let override_cwd = select_override_cwd(resume_source.as_ref(), request.cwd.as_deref());
     let effective_cwd = resolve_child_cwd(worktree_path.as_deref(), override_cwd, &ctx.parent_cwd)
         .to_string_lossy()

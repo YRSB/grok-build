@@ -484,6 +484,7 @@ impl MvpAgent {
         session_sampling.conversation_group_id = Some(
             crate::sampling::derive_conversation_group_id(session_id.0.as_ref()),
         );
+        crate::sampling::stamp_opencode_session_id(&mut session_sampling, session_id.0.as_ref());
         spawn_sampler_transport_prewarm(&session_sampling.base_url);
         let (summary_client, summary_model) = self.build_summary_client(&session_sampling)?;
         let relay_sync = self.start_relay_sync(&session_id, &session_info);
@@ -882,6 +883,10 @@ impl MvpAgent {
         );
         load_session_sampling.conversation_group_id = Some(
             crate::sampling::derive_conversation_group_id(session_id.0.as_ref()),
+        );
+        crate::sampling::stamp_opencode_session_id(
+            &mut load_session_sampling,
+            session_id.0.as_ref(),
         );
         let (summary_client, summary_model) = self.build_summary_client(&load_session_sampling)?;
         let relay_sync = self.start_relay_sync(&session_id, &session_info);

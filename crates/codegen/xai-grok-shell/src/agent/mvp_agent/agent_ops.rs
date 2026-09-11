@@ -4389,6 +4389,7 @@ impl MvpAgent {
         sampling_config.conversation_group_id = Some(
             crate::sampling::derive_conversation_group_id(session_info.id.0.as_ref()),
         );
+        crate::sampling::stamp_opencode_session_id(&mut sampling_config, session_info.id.0.as_ref());
         let max_turns = {
             let cfg = self.cfg.borrow();
             cfg.cli_agent_overrides

@@ -22,9 +22,16 @@ pub use xai_grok_sampler::{
     SamplingErrorKind, SamplingEvent,
 };
 
+pub(crate) const OPENCODE_SESSION_HEADER: &str = "x-opencode-session";
+
+pub(crate) fn stamp_opencode_session_id(config: &mut SamplerConfig, session_id: &str) {
+    config
+        .extra_headers
+        .insert(OPENCODE_SESSION_HEADER.to_string(), session_id.to_string());
+}
+
 const CONVERSATION_GROUP_NAMESPACE: &str = "xai:grok-build:conversation-group:";
 
-/// Derive the stable group shared by a root session and every descendant session.
 pub(crate) fn derive_conversation_group_id(root_session_id: &str) -> ConversationGroupId {
     let namespace_input = format!("{CONVERSATION_GROUP_NAMESPACE}{root_session_id}");
     uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, namespace_input.as_bytes())
