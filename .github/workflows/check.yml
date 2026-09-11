@@ -15,9 +15,9 @@ jobs:
       - name: Check shell crate
         run: cargo check -p xai-grok-pager-bin
       - name: Build binary
-        run: cargo build --locked -p xai-grok-pager-bin
+        run: cargo build -p xai-grok-pager-bin --release
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: xai-grok-pager-windows-x86_64
-          path: target/debug/xai-grok-pager.exe
+          path: target/release/xai-grok-pager.exe
