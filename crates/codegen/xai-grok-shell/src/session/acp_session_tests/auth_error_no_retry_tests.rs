@@ -1524,7 +1524,7 @@ async fn model_switch_stamps_opencode_session_header() {
             let mut incoming = actor.reconstruct_full_config().await;
             incoming
                 .extra_headers
-                .remove(crate::sampling::OPENCODE_SESSION_HEADER);
+                .shift_remove(crate::sampling::OPENCODE_SESSION_HEADER);
             incoming
                 .extra_headers
                 .insert("x-stale".to_string(), "keep".to_string());
