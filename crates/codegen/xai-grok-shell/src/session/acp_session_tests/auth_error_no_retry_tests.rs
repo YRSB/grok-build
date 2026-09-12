@@ -1507,6 +1507,78 @@ async fn model_switch_preserves_existing_conversation_group() {
         .await;
 }
 
+/// 回归：切换模型后请求头必须与当前会话一致，否则切换会话后首轮缺失会话标识
+#[tokio::test(flavor = "current_thread")]
+async fn model_switch_stamps_opencode_session_header() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (actor, _rx) = make_actor_with_method_and_credentials(
+                None,
+                "cached_token",
+                xai_chat_state::AuthType::SessionToken,
+                "k".to_string(),
+            )
+            .await;
+            let session_id = actor.session_info.id.0.to_string();
+            let mut incoming = actor.reconstruct_full_config().await;
+            incoming
+                .extra_headers
+                .remove(crate::sampling::OPENCODE_SESSION_HEADER);
+            incoming
+                .extra_headers
+                .insert("x-stale".to_string(), "keep".to_string());
+            actor
+                .handle_set_session_model(incoming, false, false, false, true, 85)
+                .await
+                .expect("model switch succeeds");
+
+            let switched = actor
+                .chat_state_handle
+                .get_sampling_config()
+                .await
+                .expect("model switch keeps sampling config");
+            assert_eq!(
+                switched
+                    .extra_headers
+                    .get(crate::sampling::OPENCODE_SESSION_HEADER)
+                    .map(String::as_str),
+                Some(session_id.as_str()),
+                "切换模型后会话头必须与当前会话一致",
+            );
+            assert_eq!(
+                switched.extra_headers.get("x-stale").map(String::as_str),
+                Some("keep"),
+                "无关透传头不应被丢弃",
+            );
+
+            // 陈旧会话头必须被纠正，避免沿用上一个会话的标识
+            let mut stale = actor.reconstruct_full_config().await;
+            stale.extra_headers.insert(
+                crate::sampling::OPENCODE_SESSION_HEADER.to_string(),
+                "old-session".to_string(),
+            );
+            actor
+                .handle_set_session_model(stale, false, false, false, true, 85)
+                .await
+                .expect("model switch succeeds");
+            let corrected = actor
+                .chat_state_handle
+                .get_sampling_config()
+                .await
+                .expect("model switch keeps sampling config");
+            assert_eq!(
+                corrected
+                    .extra_headers
+                    .get(crate::sampling::OPENCODE_SESSION_HEADER)
+                    .map(String::as_str),
+                Some(session_id.as_str()),
+                "陈旧会话头必须被当前会话标识覆盖",
+            );
+        })
+        .await;
+}
+
 /// Regression: `handle_set_session_model` must invalidate the memo even when `model_id` is unchanged.
 /// Otherwise a config edit that turns the current model into a per-model BYOK model on a third-party `base_url` keeps serving the stale `NotByok`.
 /// That leaves the gate active and leaks the OIDC token to the third-party host.

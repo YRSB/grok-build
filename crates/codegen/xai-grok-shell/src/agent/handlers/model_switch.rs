@@ -158,6 +158,8 @@ pub(crate) async fn apply(
     };
     let mut model_sampling =
         agent.prepare_sampling_config_for_model(&model, handle.origin_client.clone());
+    // 新配置不携带会话标识，此处按目标会话重盖，避免加载恢复后首轮缺失会话头
+    crate::sampling::stamp_opencode_session_id(&mut model_sampling, session_id.0.as_ref());
     agent.models_manager.apply_supported_effort(
         &mut model_sampling,
         effective_effort,

@@ -17,6 +17,11 @@ impl SessionActor {
         {
             sampling_config.conversation_group_id = Some(id);
         }
+        // 以本会话标识为准重盖请求头，避免模型切换或加载恢复时沿用旧会话的头
+        crate::sampling::stamp_opencode_session_id(
+            &mut sampling_config,
+            self.session_info.id.0.as_ref(),
+        );
         let model_id = acp::ModelId::new(sampling_config.model.clone());
         let new_context_window = self.compaction.context_window_override.unwrap_or_else(|| {
             std::num::NonZeroU64::new(sampling_config.context_window).unwrap_or_else(|| {

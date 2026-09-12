@@ -1,0 +1,28 @@
+# 测试流程：验证会话头修复等核心逻辑
+# 本地 Windows 缺少 protoc，原生 cargo test 跑不起来，统一放到 Action 里跑
+name: test
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 protoc
+        run: choco install protoc -y
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: test-windows
+      # 先跑本次修复的回归测试，失败时快速报错
+      - name: 运行会话头回归测试
+        run: cargo test -p xai-grok-shell --lib model_switch -- --nocapture
+      # 再跑 shell 全量单测，防止切换逻辑破坏其他会话行为
+      - name: 运行 shell 全量单测
+        run: cargo test -p xai-grok-shell --lib
