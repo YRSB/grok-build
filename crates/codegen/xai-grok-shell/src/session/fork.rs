@@ -107,9 +107,9 @@ pub async fn fork_session(
 
     let copy_ms = t0.elapsed().as_millis() as u64;
 
-    // Register the fork with the backend from a spawned task
-    // The local fork works without it: all fork state is in session files on disk, and the backend learns of the session when the task completes
-    // Spawning keeps the network round-trip (~200-400ms) off the critical path
+    // fork 后立刻沿用新会话 id 发请求（含 x-opencode-session 头），后端必须先认识这个 id
+    // 之前这里是纯后台 spawn，/fork 后马上发首轮消息就会撞上 MissingSessionID
+    // 改为前台等待注册完成，失败也不阻塞本地 fork（本地文件已就绪）
     if let Some(am) = auth_manager {
         let sid = new_session_id.clone();
         let cwd = request.new_cwd.clone();
@@ -117,25 +117,23 @@ pub async fn fork_session(
         let model = request.new_model_id.clone();
         let aid = agent_id.to_string();
         let session_agent_id = result.agent_id.clone();
-        tokio::spawn(async move {
-            if let Err(e) = sync_forked_session_to_backend(
-                &sid,
-                &cwd,
-                parent,
-                model,
-                &aid,
-                session_agent_id.as_deref(),
-                am,
-            )
-            .await
-            {
-                tracing::warn!(
-                    session_id = %sid,
-                    error = %e,
-                    "Failed to register forked session with backend (background)"
-                );
-            }
-        });
+        if let Err(e) = sync_forked_session_to_backend(
+            &sid,
+            &cwd,
+            parent,
+            model,
+            &aid,
+            session_agent_id.as_deref(),
+            am,
+        )
+        .await
+        {
+            tracing::warn!(
+                session_id = %sid,
+                error = %e,
+                "Failed to register forked session with backend"
+            );
+        }
     }
 
     let total_ms = t0.elapsed().as_millis() as u64;
@@ -147,7 +145,7 @@ pub async fn fork_session(
         total_ms,
         chat_copied = result.chat_messages_copied,
         updates_copied = result.updates_copied,
-        "FORK_COPY: session data copied (backend sync spawned in background)"
+        "FORK_COPY: session data copied (backend sync awaited)"
     );
 
     Ok(ForkSessionResponse {
