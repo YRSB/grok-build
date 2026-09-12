@@ -11,17 +11,18 @@ on:
 
 jobs:
   test:
-    runs-on: windows-latest
+    # 单测里写死了 /tmp 等路径，Windows 下必然失败；构建才用 Windows，测试固定跑 Linux
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: 安装 protoc
-        run: choco install protoc -y
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.0
       - uses: Swatinem/rust-cache@v2
         with:
-          key: test-windows
+          key: test-ubuntu
       # 先跑本次修复的回归测试，失败时快速报错
       - name: 运行会话头回归测试
         run: cargo test -p xai-grok-shell --lib model_switch -- --nocapture
