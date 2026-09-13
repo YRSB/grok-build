@@ -27,5 +27,8 @@ jobs:
       - name: 运行会话头回归测试
         run: cargo test -p xai-grok-shell --lib model_switch -- --nocapture
       # 再跑 shell 全量单测，防止切换逻辑破坏其他会话行为
+      # 全量单测曾出现测试线程栈溢出导致 SIGABRT，加大测试线程栈后重跑
       - name: 运行 shell 全量单测
+        env:
+          RUST_MIN_STACK: 16777216
         run: cargo test -p xai-grok-shell --lib
