@@ -763,6 +763,28 @@ fn test_no_reasoning_item_when_no_reasoning() {
 }
 
 #[test]
+fn test_synthetic_reasoning_without_encrypted_is_filtered() {
+    // 从未下发的合成项（空 id、无加密体）不得作为 Reasoning 输入，否则服务端以“未签发给当前调用方”拒绝。
+    // 对应 oh-my-pi#11928 同类问题在 grok-build 的自发诱因。
+    let req = ConversationRequest::from_items(vec![
+        ConversationItem::user("Hello"),
+        ConversationItem::Reasoning(crate::synthesized_reasoning_item("fallback thought")),
+        ConversationItem::assistant("Hi!"),
+    ]);
+
+    let responses_req: rs::CreateResponse = (&req).into();
+    let rs::InputParam::Items(items) = responses_req.input else {
+        panic!("Expected Items input");
+    };
+    assert!(
+        !items
+            .iter()
+            .any(|item| matches!(item, rs::InputItem::Item(rs::Item::Reasoning(_)))),
+        "合成 reasoning 不得进入输入: {items:?}"
+    );
+}
+
+#[test]
 fn test_conversation_request_with_tools_to_responses_api() {
     let tools = vec![ToolSpec {
         name: "search".to_string(),

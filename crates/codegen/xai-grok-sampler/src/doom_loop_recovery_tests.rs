@@ -264,8 +264,8 @@ fn terminal_recovery_merges_streamed_reasoning_into_the_final_item() {
     assert_eq!(sibling.content.as_ref().unwrap()[0].text, "unstreamed");
 }
 
-/// The opaque encrypted blob is charged to the replay budget.
-/// One that does not fit is dropped rather than smuggling an unbounded turn into the retry.
+/// 超规加密体计入重放预算，放不下时丢弃整个条目。
+/// 只丢加密体而保留同 id 明文属于变造重放，服务端会以“未签发给当前调用方”拒绝。
 #[test]
 fn an_oversized_encrypted_blob_is_dropped() {
     let mut small = reasoning_item("reasoning-1", Some("short thought"), None);
@@ -278,22 +278,16 @@ fn an_oversized_encrypted_blob_is_dropped() {
     ]);
 
     let items = capture.take_items();
+    assert_eq!(
+        items.len(),
+        1,
+        "超规条目必须整体丢弃，不能留下变造的明文项: {items:?}"
+    );
     let ConversationItem::Reasoning(kept) = &items[0] else {
         panic!("expected reasoning item");
     };
     assert!(kept.encrypted_content.is_some(), "a blob that fits is kept");
-    let ConversationItem::Reasoning(trimmed) = &items[1] else {
-        panic!("expected reasoning item");
-    };
-    assert!(
-        trimmed.encrypted_content.is_none(),
-        "the oversized blob is dropped"
-    );
-    assert_eq!(
-        trimmed.content.as_ref().unwrap()[0].text,
-        "another thought",
-        "dropping the blob does not cost the readable thought"
-    );
+    assert_eq!(kept.id, "reasoning-1");
 }
 
 /// Streamed reasoning the terminal response omitted is dropped: the response fixes the item order, and an omitted item has no position to occupy.

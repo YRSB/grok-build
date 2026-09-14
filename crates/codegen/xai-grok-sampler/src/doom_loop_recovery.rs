@@ -528,7 +528,11 @@ fn fit_reasoning(
     if let Some(encrypted) = &reasoning.encrypted_content
         && !budget.charge(encrypted.len())
     {
+        // 加密体是服务端绑定的不透明凭证，丢弃它后必须丢弃整个条目。
+        // 保留同 id 的明文会构成变造重放，服务端会以“未签发给当前调用方”拒绝。
         reasoning.encrypted_content = None;
+        reasoning.content = None;
+        reasoning.summary.clear();
     }
 }
 

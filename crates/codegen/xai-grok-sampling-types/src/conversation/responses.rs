@@ -209,7 +209,11 @@ fn conversation_item_to_input_items(item: &ConversationItem) -> Vec<rs::InputIte
             })]
         }
         ConversationItem::Reasoning(r) => {
-            // `status` is output-only and rejected on input.
+            // 从未下发的合成项（空 id 且无加密体）直接丢弃，否则服务端会以“未签发给当前调用方”拒绝。
+            if r.id.is_empty() && r.encrypted_content.is_none() {
+                return Vec::new();
+            }
+            // `status` 是纯输出字段，作为输入会被拒绝。
             let mut r = r.clone();
             r.status = None;
             vec![rs::InputItem::Item(rs::Item::Reasoning(r))]

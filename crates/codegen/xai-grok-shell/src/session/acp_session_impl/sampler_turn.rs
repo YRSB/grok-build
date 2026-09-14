@@ -1162,12 +1162,14 @@ impl SessionActor {
     ) -> Result<SamplerFailureRecovery, acp::Error> {
         use xai_grok_sampler::SamplingErrorKind;
 
-        // On an in-flight salvage continuation, a max-tokens failure or a probable context overflow is not terminal.
-        // Return before the budgeted-child rewrites so the marker survives for workflow children.
-        // The request's usage never arrived; account for it fail-closed.
-        let encrypted_content_mismatch = matches!(error.kind, SamplingErrorKind::Api)
-            && error.status_code == Some(400)
-            && error.message.contains("encrypted_content");
+        // 加密体不匹配的终态兜底（采样器内已先做一次剥离重试，能到这里说明无可剥离或重试仍失败）。
+        // 兼容直连与网关两种文案，与 `SamplingError::is_encrypted_content_error` 保持一致。
+        let encrypted_content_mismatch =
+            matches!(error.kind, SamplingErrorKind::Api) && error.status_code == Some(400) && {
+                let lower = error.message.to_ascii_lowercase();
+                lower.contains("encrypted_content") || lower.contains("not issued to this caller")
+            };
+        //  salvaging 延续中的静默失败判定：请求用量未返回，按失败闭环记账。
         let quiet_mid_salvage = mid_salvage_continuation
             && (error.kind == SamplingErrorKind::MaxTokensTruncation
                 || xai_grok_sampling_types::is_context_length_error(&error.message)
@@ -1265,8 +1267,7 @@ impl SessionActor {
         // Here we send the `RetryState::Failed` notification, which the drainer intentionally skips because it would fire mid-retry
         let detailed_message = error.message.clone();
 
-        // 2. Encrypted-content mismatch: friendly error, no retry.
-        //    Detect via the BadRequest and "encrypted_content" message pattern that `SamplingError::is_encrypted_content_error` used in the legacy path
+        // 2. 加密体不匹配的终态：采样器内剥离重试已耗尽，给出友好错误，不再重试。
         if encrypted_content_mismatch {
             self.signals_handle()
                 .record_error_typed("encrypted_content_mismatch");

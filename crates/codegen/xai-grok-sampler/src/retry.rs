@@ -83,6 +83,10 @@ pub enum RetryDecision {
 
     RetryWithImageStrip,
 
+    /// 加密体不匹配：剥离全部 reasoning 后重试一次。
+    /// 对应上游 `filter-reasoning-history` 的自愈版本，避免直接要求用户新开会话。
+    RetryWithReasoningStrip,
+
     RetryWithClientRebuild {
         backoff: Duration,
     },
@@ -101,8 +105,10 @@ pub fn classify_error(
     if err.is_auth_error() {
         return RetryDecision::EmitToSession(clone_error(err));
     }
+    // 加密体绑定到下发时的调用方，换模型/换凭证/网关转代理后重放必定 400。
+    // 先走一次剥离重试，剥无可剥时才交由上层提示新开会话。
     if err.is_encrypted_content_error() {
-        return RetryDecision::EmitToSession(clone_error(err));
+        return RetryDecision::RetryWithReasoningStrip;
     }
     if max_retries == 0 {
         return RetryDecision::Fatal(clone_error(err));
@@ -440,14 +446,17 @@ mod tests {
     }
 
     #[test]
-    fn classify_encrypted_content_emits_to_session() {
-        let err = api_err(
-            StatusCode::BAD_REQUEST,
+    fn classify_encrypted_content_strips_reasoning() {
+        // 两种上游文案都要走到剥离重试：直连解密失败与网关“未签发给当前调用方”。
+        for msg in [
             "Could not decrypt the provided encrypted_content",
-        );
-        match classify_error(&err, 0, 5, RATE_LIMIT_RETRY_THRESHOLD) {
-            RetryDecision::EmitToSession(_) => {}
-            other => panic!("expected EmitToSession, got {other:?}"),
+            "reasoning `encrypted_content` was not issued to this caller",
+        ] {
+            let err = api_err(StatusCode::BAD_REQUEST, msg);
+            match classify_error(&err, 0, 5, RATE_LIMIT_RETRY_THRESHOLD) {
+                RetryDecision::RetryWithReasoningStrip => {}
+                other => panic!("expected RetryWithReasoningStrip, got {other:?} for {msg}"),
+            }
         }
     }
 

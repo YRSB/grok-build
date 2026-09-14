@@ -363,8 +363,9 @@ impl SamplingError {
         }
     }
 
-    /// The server rejected the request: the conversation history contains `encrypted_content` from a model family the current model cannot decrypt.
-    /// Never retryable: the user must start a new session.
+    /// 服务端拒绝请求：历史中的 `encrypted_content` 当前模型无法解密。
+    /// 覆盖两种文案：直连的解密失败，以及网关透传的“未签发给当前调用方”。
+    /// 该错误允许剥离 reasoning 后重试一次，耗尽后才要求新会话。
     pub fn is_encrypted_content_error(&self) -> bool {
         matches!(
             self,
@@ -372,7 +373,10 @@ impl SamplingError {
                 status: StatusCode::BAD_REQUEST,
                 message,
                 ..
-            } if message.contains("encrypted_content")
+            } if {
+                let lower = message.to_ascii_lowercase();
+                lower.contains("encrypted_content") || lower.contains("not issued to this caller")
+            }
         )
     }
 
@@ -1485,6 +1489,20 @@ mod tests {
             !err.is_retryable(),
             "encrypted_content errors must not be retried"
         );
+    }
+
+    #[test]
+    fn encrypted_content_not_issued_is_detected() {
+        // 网关透传文案（oh-my-pi#11928）：即使不含解密动词也要识别，以便走剥离重试。
+        let err = SamplingError::Api {
+            status: StatusCode::BAD_REQUEST,
+            message: "reasoning `encrypted_content` was not issued to this caller".into(),
+            model_metadata: None,
+            retry_after_secs: None,
+            should_retry: None,
+            error_code: None,
+        };
+        assert!(err.is_encrypted_content_error());
     }
 
     #[test]

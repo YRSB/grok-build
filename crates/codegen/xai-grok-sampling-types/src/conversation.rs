@@ -622,6 +622,16 @@ impl ConversationRequest {
     pub fn strip_images(&mut self) -> Vec<Arc<str>> {
         strip_images_where(&mut self.items, |_| true)
     }
+
+    /// 丢弃全部 reasoning 同级项，返回丢弃条数。
+    /// 用于加密体不匹配时的自愈重试：服务端把加密体绑定到下发时的调用方，
+    /// 换模型、换凭证或网关转代理后重放旧加密体必定 400，此时只能整体丢弃后重试。
+    pub fn strip_reasoning(&mut self) -> usize {
+        let before = self.items.len();
+        self.items
+            .retain(|item| !matches!(item, ConversationItem::Reasoning(_)));
+        before - self.items.len()
+    }
 }
 
 /// Strip only `urls`.
@@ -3947,6 +3957,47 @@ mod tests {
         } else {
             panic!("Expected ToolResult");
         }
+    }
+
+    // ── strip_reasoning tests ─────────────────────────────────────────────────
+
+    /// 加密体不匹配时的自愈剥离：丢弃全部 reasoning 同级项，保留其他项顺序。
+    #[test]
+    fn test_strip_reasoning_drops_all_reasoning_siblings() {
+        use crate::rs;
+        let mut req = ConversationRequest::from_items(vec![
+            ConversationItem::user("hi"),
+            ConversationItem::Reasoning(rs::ReasoningItem {
+                id: "r1".into(),
+                summary: vec![],
+                content: None,
+                encrypted_content: Some("enc".into()),
+                status: None,
+            }),
+            ConversationItem::assistant("hello"),
+            ConversationItem::Reasoning(rs::ReasoningItem {
+                id: String::new(),
+                summary: vec![],
+                content: None,
+                encrypted_content: None,
+                status: None,
+            }),
+        ]);
+        assert_eq!(req.strip_reasoning(), 2);
+        assert!(
+            !req.items
+                .iter()
+                .any(|i| matches!(i, ConversationItem::Reasoning(_))),
+            "reasoning 必须全部丢弃: {:?}",
+            req.items
+        );
+        assert_eq!(req.items.len(), 2);
+    }
+
+    #[test]
+    fn test_strip_reasoning_returns_zero_when_absent() {
+        let mut req = ConversationRequest::from_items(vec![ConversationItem::user("hi")]);
+        assert_eq!(req.strip_reasoning(), 0);
     }
 
     // ── SyntheticReason tests ─────────────────────────────────────────────────

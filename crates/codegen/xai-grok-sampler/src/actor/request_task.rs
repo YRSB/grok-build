@@ -461,6 +461,23 @@ async fn apply_retry_decision(
             }
             true
         }
+        RetryDecision::RetryWithReasoningStrip => {
+            let stripped = request.strip_reasoning();
+            if stripped == 0 {
+                // 无可剥离时退回原有语义：交由上层提示新开会话。
+                let terminal_event_queued = emit_failed(event_tx, request_id, err);
+                send_completion(completion, Err(clone_error(err)), terminal_event_queued);
+                return false;
+            }
+            tracing::warn!(
+                stripped,
+                error = %err,
+                "stripped reasoning history after an encrypted_content mismatch; retrying without it",
+            );
+            *retry_count += 1;
+            emit_retrying(event_tx, request_id, *retry_count, max_retries, err);
+            true
+        }
         RetryDecision::EmitToSession(emitted_err) => {
             let terminal_event_queued = emit_failed(event_tx, request_id, &emitted_err);
             send_completion(completion, Err(emitted_err), terminal_event_queued);
